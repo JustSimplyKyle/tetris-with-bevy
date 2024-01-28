@@ -1,16 +1,16 @@
 mod blocks;
 mod board;
-mod collision;
 use bevy::prelude::*;
+use bevy_xpbd_2d::prelude::*;
 use blocks::blocks::TetrisBlockPlugin;
-use collision::CollisionPlugin;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(PhysicsPlugins::default())
+        .add_plugins(PhysicsDebugPlugin::default())
         .add_systems(Startup, setup)
         .add_plugins(TetrisBlockPlugin)
-        .add_plugins(CollisionPlugin)
         .run();
 }
 

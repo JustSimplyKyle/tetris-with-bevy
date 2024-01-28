@@ -1,3 +1,4 @@
+use bevy_xpbd_2d::prelude::*;
 use std::{f32::consts::PI, time::Duration};
 
 use bevy::{
@@ -6,7 +7,7 @@ use bevy::{
 };
 use rand_derive2::RandGen;
 
-use crate::{collision::Collider, SIZE};
+use crate::SIZE;
 
 pub struct TetrisBlockPlugin;
 
@@ -17,7 +18,7 @@ impl Plugin for TetrisBlockPlugin {
             .init_resource::<SpeedTimer>()
             .add_systems(Update, block_spawner)
             .add_systems(Update, block_movement_controls)
-            .add_systems(Update, handle_block_collisions)
+            .add_systems(Update, display_events)
             .add_systems(Update, block_gravity);
     }
 }
@@ -63,7 +64,6 @@ impl Default for SpeedTimer {
 pub struct TetrisBlockBundle {
     block: Block,
     state: State,
-    collider: Collider,
 }
 
 #[derive(Component, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -101,7 +101,7 @@ impl Default for State {
     }
 }
 
-#[derive(Component, PartialEq, Eq, PartialOrd, Ord, Debug, RandGen)]
+#[derive(Component, PartialEq, Eq, PartialOrd, Ord, Debug, RandGen, Clone, Copy)]
 pub enum Block {
     T,
     J,
@@ -123,6 +123,7 @@ fn block_spawner(
         let positions = block.get_positions();
         let color = block.get_color();
 
+        let collider = block.get_collider();
         let mesh = Mesh::new(PrimitiveTopology::TriangleList)
             .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions);
         let material = materials.add(ColorMaterial::from(color));
@@ -130,19 +131,20 @@ fn block_spawner(
             .with_scale(Vec3::splat(SIZE))
             .with_translation(Vec3::from_array([0., SIZE * 12., 0.]));
 
-        commands.spawn((
-            TetrisBlockBundle {
+        /* Create the ground. */
+        commands
+            .spawn(TetrisBlockBundle {
                 block,
                 state: State::Falling,
-                collider: Collider::new(),
-            },
-            MaterialMesh2dBundle {
+            })
+            .insert(MaterialMesh2dBundle {
                 mesh: meshes.add(mesh).into(),
                 transform,
                 material,
                 ..default()
-            },
-        ));
+            })
+            .insert(collider)
+            .insert(Sensor);
     }
 }
 
@@ -157,11 +159,7 @@ fn block_movement_controls(
         .find(|(_, state)| **state == State::Falling)
     {
         if keyboard_input.any_just_pressed([KeyCode::Z, KeyCode::Up]) {
-            let location = dbg!(piece.translation);
-            piece.rotate_around(
-                location,
-                Quat::from_axis_angle(Vec3::from_array([0., 0., 1.]), -PI / 2.),
-            );
+            piece.rotate_local_z(-PI / 2.);
         }
         if keyboard_input.just_pressed(KeyCode::X) {
             piece.rotate_z(PI / 2.);
@@ -194,17 +192,6 @@ fn block_movement_controls(
     }
 }
 
-fn handle_block_collisions(
-    query: Query<&Collider, With<Block>>,
-    mut query2: Query<&mut State, With<Block>>,
-) {
-    for i in query.iter().flat_map(|x| x.colliding_entities.iter()) {
-        if let Ok(mut p) = query2.get_mut(*i) {
-            *p = State::Placed;
-        }
-    }
-}
-
 fn block_gravity(
     mut query: Query<(&mut Transform, &mut State), With<Block>>,
     level: Res<Level>,
@@ -221,6 +208,17 @@ fn block_gravity(
         }
         if transform.translation.y <= SIZE * -6. {
             *state = State::Placed;
+        }
+    }
+}
+
+fn display_events(
+    collision_events: Query<(Entity, &CollidingEntities)>,
+    mut query: Query<&mut State, With<Block>>,
+) {
+    for entity in collision_events.iter().flat_map(|x| x.1 .0.iter()) {
+        if let Ok(mut p) = query.get_mut(*entity) {
+            *p = State::Placed;
         }
     }
 }
