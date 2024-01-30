@@ -1,6 +1,7 @@
 use crate::blocks::blocks::Block;
 use bevy::prelude::*;
-use bevy_xpbd_2d::components::Collider;
+
+use super::blocks::BoardBlockState;
 impl Block {
     pub fn get_color(&self) -> Color {
         match self {
@@ -14,214 +15,65 @@ impl Block {
         }
     }
 
-    pub fn get_collider(&self) -> Collider {
+    pub fn rotate_right(&self) -> Vec<Vec<BoardBlockState>> {
+        use BoardBlockState as E;
+        let falling = E::Falling { block_type: *self };
         match self {
-            Block::T => {
-                let top = Collider::convex_hull(vec![
-                    Vec2::new(0., 0.),
-                    Vec2::new(3., 0.),
-                    Vec2::new(0., -1.),
-                    Vec2::new(3., -1.),
-                ])
-                .unwrap();
-                let bottom = Collider::convex_hull(vec![
-                    Vec2::new(0., 0.),
-                    Vec2::new(1., 1.),
-                    Vec2::new(1., 0.),
-                    Vec2::new(0., 1.),
-                ])
-                .unwrap();
-                Collider::compound(vec![
-                    (Vec2::new(0., 1.), 0., top),
-                    (Vec2::new(1., -1.), 0., bottom),
-                ])
-            }
-            Block::J => {
-                let long = Collider::convex_hull(vec![
-                    Vec2::new(0., 3.),
-                    Vec2::new(0., 0.),
-                    Vec2::new(1., 0.),
-                    Vec2::new(1., 3.),
-                ])
-                .unwrap();
-                let p = Collider::convex_hull(vec![
-                    Vec2::new(0., 0.),
-                    Vec2::new(0., 1.),
-                    Vec2::new(1., 1.),
-                    Vec2::new(1., 0.),
-                ])
-                .unwrap();
-
-                Collider::compound(vec![
-                    (Vec2::new(0.0, 0.0), 0.0, long),
-                    (Vec2::new(-1.0, 0.0), 0.0, p),
-                ])
-            }
-            Block::L => {
-                let long = Collider::convex_hull(vec![
-                    Vec2::new(0., 3.),
-                    Vec2::new(0., 0.),
-                    Vec2::new(1., 0.),
-                    Vec2::new(1., 3.),
-                ])
-                .unwrap();
-                let p = Collider::convex_hull(vec![
-                    Vec2::new(1., 1.),
-                    Vec2::new(2., 1.),
-                    Vec2::new(2., 0.),
-                    Vec2::new(1., 0.),
-                ])
-                .unwrap();
-
-                Collider::compound(vec![
-                    (Vec2::new(0.0, 0.0), 0.0, long),
-                    (Vec2::new(0.0, 0.0), 0.0, p),
-                ])
-            }
-            Block::I => Collider::convex_hull(vec![
-                Vec2::new(0., 4.),
-                Vec2::new(1., 4.),
-                Vec2::new(0., 0.),
-                Vec2::new(1., 0.),
-            ])
-            .unwrap(),
-            Block::O => Collider::convex_hull(vec![
-                Vec2::new(0., 0.),
-                Vec2::new(0., 2.),
-                Vec2::new(2., 2.),
-                Vec2::new(2., 0.),
-            ])
-            .unwrap(),
-            Block::Z => {
-                let top = Collider::convex_hull(vec![
-                    Vec2::new(0., 0.),
-                    Vec2::new(2., 0.),
-                    Vec2::new(0., -1.),
-                    Vec2::new(2., -1.),
-                ])
-                .unwrap();
-                Collider::compound(vec![
-                    (Vec2::new(0., 0.), 0., top.clone()),
-                    (Vec2::new(1., -1.), 0., top),
-                ])
-            }
-            Block::S => {
-                let bottom = Collider::convex_hull(vec![
-                    Vec2::new(0., 0.),
-                    Vec2::new(2., 0.),
-                    Vec2::new(0., -1.),
-                    Vec2::new(2., -1.),
-                ])
-                .unwrap();
-                Collider::compound(vec![
-                    (Vec2::new(0., 1.), 0., bottom.clone()),
-                    (Vec2::new(1., 2.), 0., bottom),
-                ])
-            }
+            Block::I => vec![
+                vec![E::Empty, E::Empty, falling, E::Empty],
+                vec![E::Empty, E::Empty, falling, E::Empty],
+                vec![E::Empty, E::Empty, falling, E::Empty],
+                vec![E::Empty, E::Empty, falling, E::Empty],
+            ],
+            _ => todo!(),
         }
     }
-    pub fn get_positions(&self) -> Vec<[f32; 3]> {
+
+    pub fn get_occupied(&self) -> Vec<Vec<BoardBlockState>> {
+        use BoardBlockState as E;
+        let falling = E::Falling { block_type: *self };
         match self {
-            Block::T => {
-                vec![
-                    [0., 0., 0.],
-                    [0., 1., 0.],
-                    [3., 0., 0.],
-                    [0., 1., 0.],
-                    [3., 1., 0.],
-                    [3., 0., 0.],
-                    [1., 0., 0.],
-                    [1., -1., 0.],
-                    [2., -1., 0.],
-                    [1., 0., 0.],
-                    [2., 0., 0.],
-                    [2., -1., 0.],
-                ]
-            }
-            Block::L => {
-                vec![
-                    [0., 0., 0.],
-                    [0., 3., 0.],
-                    [1., 0., 0.],
-                    [1., 0., 0.],
-                    [0., 3., 0.],
-                    [1., 3., 0.],
-                    [1., 0., 0.],
-                    [1., 1., 0.],
-                    [2., 0., 0.],
-                    [2., 0., 0.],
-                    [2., 1., 0.],
-                    [1., 1., 0.],
-                ]
-            }
-            Block::J => {
-                vec![
-                    [0., 0., 0.],
-                    [0., 3., 0.],
-                    [1., 0., 0.],
-                    [1., 0., 0.],
-                    [0., 3., 0.],
-                    [1., 3., 0.],
-                    [-1., 0., 0.],
-                    [-1., 1., 0.],
-                    [0., 0., 0.],
-                    [-1., 1., 0.],
-                    [0., 1., 0.],
-                    [0., 0., 0.],
-                ]
-            }
-            Block::I => {
-                vec![
-                    [0., 0., 0.],
-                    [0., 4., 0.],
-                    [1., 0., 0.],
-                    [1., 4., 0.],
-                    [0., 4., 0.],
-                    [1., 0., 0.],
-                ]
-            }
-            Block::O => {
-                vec![
-                    [0., 0., 0.],
-                    [2., 0., 0.],
-                    [0., 2., 0.],
-                    [0., 2., 0.],
-                    [2., 0., 0.],
-                    [2., 2., 0.],
-                ]
-            }
-            Block::S => {
-                vec![
-                    [0., 0., 0.],
-                    [0., 1., 0.],
-                    [2., 0., 0.],
-                    [0., 1., 0.],
-                    [2., 1., 0.],
-                    [2., 0., 0.],
-                    [1., 1., 0.],
-                    [1., 2., 0.],
-                    [3., 1., 0.],
-                    [3., 2., 0.],
-                    [3., 1., 0.],
-                    [1., 2., 0.],
-                ]
-            }
-            Block::Z => {
-                vec![
-                    [0., 0., 0.],
-                    [2., 0., 0.],
-                    [0., -1., 0.],
-                    [2., 0., 0.],
-                    [0., -1., 0.],
-                    [2., -1., 0.],
-                    [1., -1., 0.],
-                    [3., -1., 0.],
-                    [1., -2., 0.],
-                    [3., -1., 0.],
-                    [1., -2., 0.],
-                    [3., -2., 0.],
-                ]
-            }
+            Block::T => vec![
+                vec![E::Empty, E::Empty, E::Empty],
+                vec![E::Empty, falling, E::Empty],
+                vec![falling, falling, falling],
+                vec![E::Empty, E::Empty, E::Empty],
+            ],
+            Block::J => vec![
+                vec![E::Empty, E::Empty, E::Empty],
+                vec![falling, E::Empty, E::Empty],
+                vec![falling, falling, falling],
+                vec![E::Empty, E::Empty, E::Empty],
+            ],
+            Block::L => vec![
+                vec![E::Empty, E::Empty, E::Empty, E::Empty],
+                vec![E::Empty, E::Empty, E::Empty, falling],
+                vec![E::Empty, falling, falling, falling],
+                vec![E::Empty, E::Empty, E::Empty, E::Empty],
+            ],
+            Block::O => vec![
+                vec![E::Empty, E::Empty, E::Empty, E::Empty],
+                vec![E::Empty, falling, falling, E::Empty],
+                vec![E::Empty, falling, falling, E::Empty],
+                vec![E::Empty, E::Empty, E::Empty, E::Empty],
+            ],
+            Block::S => vec![
+                vec![E::Empty, E::Empty, E::Empty],
+                vec![E::Empty, falling, falling],
+                vec![falling, falling, E::Empty],
+                vec![E::Empty, E::Empty, E::Empty],
+            ],
+            Block::Z => vec![
+                vec![E::Empty, E::Empty, E::Empty],
+                vec![falling, falling, E::Empty],
+                vec![E::Empty, falling, falling],
+                vec![E::Empty, E::Empty, E::Empty],
+            ],
+            Block::I => vec![
+                vec![E::Empty, E::Empty, E::Empty, E::Empty],
+                vec![falling, falling, falling, falling],
+                vec![E::Empty, E::Empty, E::Empty, E::Empty],
+            ],
         }
     }
 }
