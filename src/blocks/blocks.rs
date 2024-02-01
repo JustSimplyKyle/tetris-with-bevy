@@ -1,7 +1,6 @@
-use std::time::Duration;
+use std::{process::exit, time::Duration};
 
 use bevy::{
-    ecs::system::Despawn,
     prelude::*,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
     time::Stopwatch,
@@ -52,8 +51,8 @@ pub struct Board {
 
 impl std::fmt::Display for Board {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let p = &self.inner;
-        let k = p
+        let k = &self
+            .inner
             .iter()
             .map(|i| {
                 i.iter().fold(String::new(), |acc, x| {
@@ -127,6 +126,26 @@ impl Default for SpeedTimer {
 pub struct TetrisBlockBundle {
     block: Block,
     state: State,
+    facing: Angle,
+}
+
+#[derive(Component, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
+pub enum Angle {
+    Up,
+    Right,
+    Down,
+    Left,
+}
+
+impl Angle {
+    fn rotate_right(&self) -> Self {
+        match self {
+            Angle::Up => Angle::Right,
+            Angle::Right => Angle::Down,
+            Angle::Down => Angle::Left,
+            Angle::Left => Angle::Right,
+        }
+    }
 }
 
 #[derive(Component, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
@@ -218,6 +237,7 @@ fn block_spawner(state: Query<&State>, mut board: ResMut<Board>, mut commands: C
         commands.spawn((TetrisBlockBundle {
             block,
             state: State::Falling,
+            facing: Angle::Up,
         },));
     }
 }
@@ -231,13 +251,13 @@ fn draw_block(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    let block_mesh = meshes.add(Mesh::from(shape::Quad::default()));
     for (u_row, row) in board.inner.iter().enumerate() {
         for (u_col, block) in row.iter().enumerate() {
             match block {
                 BoardBlockState::Placed { block_type }
                 | BoardBlockState::Falling { block_type } => {
                     let color = block_type.get_color();
-                    let block_mesh = Mesh::from(shape::Quad::default());
                     let material = materials.add(ColorMaterial::from(color));
                     let transform = Transform::default()
                         .with_scale(Vec3::from_array([POINT_SIZE, POINT_SIZE, POINT_SIZE]))
@@ -248,7 +268,7 @@ fn draw_block(
                         ]));
 
                     let mesh_bundle = MaterialMesh2dBundle {
-                        mesh: meshes.add(block_mesh).into(),
+                        mesh: block_mesh.clone_weak().into(),
                         transform,
                         material,
                         ..default()
@@ -260,8 +280,9 @@ fn draw_block(
             }
         }
     }
+
     for entity in &mesh_handler {
-        commands.add(Despawn { entity });
+        commands.entity(entity).despawn_recursive();
     }
 }
 
@@ -295,12 +316,62 @@ fn clear_line(mut board: ResMut<Board>) {
             }
         }
     }
-
-    // move each block down
+}
+fn extract_matrix(
+    board: &Vec<Vec<BoardBlockState>>,
+    top_left: (usize, usize),
+) -> Option<[[BoardBlockState; 4]; 4]> {
+    let mut matrix = [[BoardBlockState::Empty; 4]; 4];
+    let mut moved = true;
+    for (i, row) in matrix.iter_mut().enumerate() {
+        for (j, cell) in row.iter_mut().enumerate() {
+            let board_row = top_left.0 + i;
+            let board_col = top_left.1 + j;
+            if board_row < board.len() && board_col < board[0].len() {
+                *cell = board[board_row][board_col];
+            } else {
+                moved = false;
+                break;
+            }
+        }
+    }
+    if matrix
+        .last()
+        .unwrap()
+        .iter()
+        .all(|x| *x == BoardBlockState::Empty)
+    {
+        matrix.rotate_right(1);
+    }
+    if moved {
+        dbg!(Some(matrix))
+    } else {
+        None
+    }
 }
 
+fn rotate_matrix(matrix: [[BoardBlockState; 4]; 4]) -> [[BoardBlockState; 4]; 4] {
+    let mut new_piece = matrix.clone();
+    let mut moved = true;
+    for x in 0..4 {
+        for y in 0..4 {
+            if new_piece[y][3 - x].is_placed() {
+                moved = false;
+                break;
+            }
+        }
+    }
+    for x in 0..4 {
+        for y in 0..4 {
+            if moved {
+                new_piece[y][3 - x] = matrix[x][y];
+            }
+        }
+    }
+    dbg!(new_piece)
+}
 fn block_movement_controls(
-    mut query: Query<(&Block, &mut State), With<Block>>,
+    mut query: Query<(&Block, &mut State, &mut Angle), With<Block>>,
     mut board: ResMut<Board>,
     keyboard_input: Res<Input<KeyCode>>,
     time: Res<Time>,
@@ -308,16 +379,16 @@ fn block_movement_controls(
 ) {
     let board = &mut board.inner;
 
-    if let Some((block, _)) = query
+    if let Some((block, _, mut facing)) = query
         .iter_mut()
-        .find(|(_, state)| **state == State::Falling)
+        .find(|(_, state, _)| **state == State::Falling)
     {
         let mut das_handler = |keycode, translator: &mut dyn FnMut()| {
             timer.das.tick(time.delta());
             if keyboard_input.just_pressed(keycode) {
                 translator();
             }
-            if timer.das.elapsed() >= Duration::from_millis(250) {
+            if timer.das.elapsed() >= Duration::from_millis(150) {
                 timer.speed.tick(time.delta());
                 if keyboard_input.just_released(keycode) {
                     timer.das.reset();
@@ -328,12 +399,56 @@ fn block_movement_controls(
                 }
             }
         };
-        if keyboard_input.pressed(KeyCode::Up) {
+
+        if keyboard_input.just_pressed(KeyCode::Up) && block != &Block::O {
             let rows = board.len();
             let cols = board[0].len();
+            let mut vec = Vec::new();
             for row in 0..rows {
-                for col in 0..cols {}
+                for col in 0..cols {
+                    if board[row][col].is_falling() {
+                        vec.push((row, col));
+                    }
+                }
             }
+            let (row_min, col_min) = (vec.iter().map(|x| x.0).min(), vec.iter().map(|x| x.1).min());
+            if let (Some(a), Some(b)) = (row_min, col_min) {
+                let top_left = dbg!((a, b));
+                let matrix = extract_matrix(&*board, top_left);
+                if let Some(x) = matrix {
+                    let mut rotated = rotate_matrix(x);
+                    if rotated
+                        .last()
+                        .unwrap()
+                        .iter()
+                        .all(|x| *x == BoardBlockState::Empty)
+                    {
+                        rotated.rotate_right(1);
+                    } else if rotated
+                        .first()
+                        .unwrap()
+                        .iter()
+                        .all(|x| *x == BoardBlockState::Empty)
+                    {
+                        rotated.rotate_left(1);
+                    }
+                    for (i, row) in rotated.iter().enumerate() {
+                        for (j, &cell) in row.iter().enumerate() {
+                            let board_row = a + i;
+                            let board_col = b + j;
+                            if board_row < rows && board_col < cols {
+                                // Update the board cell only if the matrix cell is 'true'
+                                // This assumes that 'true' represents a filled block
+                                if !board[board_row][board_col].is_placed() {
+                                    board[board_row][board_col] = dbg!(cell);
+                                }
+                            }
+                        }
+                    }
+                    *facing = facing.rotate_right();
+                }
+            }
+            // dbg!(vec);
         }
 
         if keyboard_input.pressed(KeyCode::Left) {

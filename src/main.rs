@@ -1,5 +1,4 @@
 mod blocks;
-mod board;
 use bevy::prelude::*;
 use blocks::blocks::TetrisBlockPlugin;
 
@@ -14,5 +13,3 @@ fn main() {
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 }
-
-const SIZE: f32 = 64.;
