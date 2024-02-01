@@ -3089,7 +3089,7 @@ dependencies = [
 
 [[package]]
 name = "tetris"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bevy",
  "rand",
