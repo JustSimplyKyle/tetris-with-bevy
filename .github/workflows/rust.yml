@@ -5,6 +5,8 @@ on:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,9 +18,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    
     - name: Install
       run: cargo install wasm-bindgen-cli
     - name: Build
       run: cargo build --release --target wasm32-unknown-unknown
     - name: Wasm Generate
       run: wasm-bindgen --no-typescript --target web --out-dir ./out/ --out-name "tetris" ./target/wasm32-unknown-unknown/release/tetris.wasm
+    - name: PUSHHH
+      run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add .
+          git commit -m "generated wasms!"
+          git push
