@@ -2,6 +2,7 @@ use std::{process::exit, time::Duration};
 
 use bevy::{
     prelude::*,
+    reflect::Array,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
     time::Stopwatch,
 };
@@ -320,8 +321,13 @@ fn clear_line(mut board: ResMut<Board>) {
 fn extract_matrix(
     board: &Vec<Vec<BoardBlockState>>,
     top_left: (usize, usize),
-) -> Option<[[BoardBlockState; 4]; 4]> {
-    let mut matrix = [[BoardBlockState::Empty; 4]; 4];
+    block: Block,
+) -> Option<Vec<Vec<BoardBlockState>>> {
+    let mut matrix = if block == Block::I {
+        vec![vec![BoardBlockState::Empty; 4]; 4]
+    } else {
+        vec![vec![BoardBlockState::Empty; 3]; 3]
+    };
     let mut moved = true;
     for (i, row) in matrix.iter_mut().enumerate() {
         for (j, cell) in row.iter_mut().enumerate() {
@@ -335,36 +341,60 @@ fn extract_matrix(
             }
         }
     }
-    if matrix
-        .last()
-        .unwrap()
-        .iter()
-        .all(|x| *x == BoardBlockState::Empty)
-    {
-        matrix.rotate_right(1);
+    let t = if block == Block::I { 3 } else { 1 };
+    for _ in 0..t {
+        if matrix
+            .last()
+            .unwrap()
+            .iter()
+            .all(|x| *x == BoardBlockState::Empty)
+        {
+            matrix.rotate_right(1);
+        }
+    }
+    let t = if block == Block::I { 1 } else { 1 };
+    for _ in 0..t {
+        if matrix
+            .iter()
+            .filter_map(|x| x.last())
+            .all(|x| *x == BoardBlockState::Empty)
+        {
+            for i in matrix.iter_mut() {
+                i.rotate_right(1);
+            }
+        } else if matrix
+            .iter()
+            .filter_map(|x| x.first())
+            .all(|x| *x == BoardBlockState::Empty)
+        {
+            for i in matrix.iter_mut() {
+                i.rotate_left(1);
+            }
+        }
     }
     if moved {
-        dbg!(Some(matrix))
+        Some(matrix)
     } else {
         None
     }
 }
 
-fn rotate_matrix(matrix: [[BoardBlockState; 4]; 4]) -> [[BoardBlockState; 4]; 4] {
+fn rotate_matrix<'a>(matrix: Vec<Vec<BoardBlockState>>) -> Vec<Vec<BoardBlockState>> {
     let mut new_piece = matrix.clone();
     let mut moved = true;
-    for x in 0..4 {
-        for y in 0..4 {
-            if new_piece[y][3 - x].is_placed() {
+    let len = matrix.len();
+    for x in 0..len {
+        for y in 0..len {
+            if new_piece[y][len - 1 - x].is_placed() {
                 moved = false;
                 break;
             }
         }
     }
-    for x in 0..4 {
-        for y in 0..4 {
+    for x in 0..len {
+        for y in 0..len {
             if moved {
-                new_piece[y][3 - x] = matrix[x][y];
+                new_piece[y][len - 1 - x] = matrix[x][y];
             }
         }
     }
@@ -413,39 +443,21 @@ fn block_movement_controls(
             }
             let (row_min, col_min) = (vec.iter().map(|x| x.0).min(), vec.iter().map(|x| x.1).min());
             if let (Some(a), Some(b)) = (row_min, col_min) {
-                let top_left = dbg!((a, b));
-                let matrix = extract_matrix(&*board, top_left);
+                let top_left = (a, b);
+                let matrix = extract_matrix(&*board, top_left, *block);
                 if let Some(x) = matrix {
-                    let mut rotated = rotate_matrix(x);
-                    if rotated
-                        .last()
-                        .unwrap()
-                        .iter()
-                        .all(|x| *x == BoardBlockState::Empty)
-                    {
-                        rotated.rotate_right(1);
-                    } else if rotated
-                        .first()
-                        .unwrap()
-                        .iter()
-                        .all(|x| *x == BoardBlockState::Empty)
-                    {
-                        rotated.rotate_left(1);
-                    }
+                    let rotated = rotate_matrix(x);
                     for (i, row) in rotated.iter().enumerate() {
                         for (j, &cell) in row.iter().enumerate() {
                             let board_row = a + i;
                             let board_col = b + j;
                             if board_row < rows && board_col < cols {
-                                // Update the board cell only if the matrix cell is 'true'
-                                // This assumes that 'true' represents a filled block
                                 if !board[board_row][board_col].is_placed() {
-                                    board[board_row][board_col] = dbg!(cell);
+                                    board[board_row][board_col] = cell;
                                 }
                             }
                         }
                     }
-                    *facing = facing.rotate_right();
                 }
             }
             // dbg!(vec);
