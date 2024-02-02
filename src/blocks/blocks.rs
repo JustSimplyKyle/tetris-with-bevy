@@ -1,12 +1,13 @@
-use std::{process::exit, time::Duration};
+use std::time::Duration;
 
 use bevy::{
     prelude::*,
-    reflect::Array,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
     time::Stopwatch,
 };
 use rand_derive2::RandGen;
+
+use crate::GameState;
 
 pub struct TetrisBlockPlugin;
 
@@ -16,13 +17,37 @@ impl Plugin for TetrisBlockPlugin {
             .init_resource::<DasTimer>()
             .init_resource::<Level>()
             .init_resource::<SpeedTimer>()
-            .add_systems(Update, block_movement_controls)
-            .add_systems(Update, block_spawner)
-            .add_systems(Update, draw_block)
-            .add_systems(Update, clear_line)
-            .add_systems(Update, board_tui)
-            .add_systems(Update, block_gravity);
+            .add_systems(
+                Update,
+                (
+                    block_movement_controls,
+                    block_spawner,
+                    draw_block,
+                    clear_line,
+                    board_tui,
+                    block_gravity,
+                )
+                    .run_if(in_state(GameState::InGame)),
+            )
+            .add_systems(Update, clear_board.run_if(in_state(GameState::GameOver)));
     }
+}
+
+fn clear_board(
+    mut board: ResMut<Board>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut entity: Query<Entity, With<Block>>,
+    mut block_state: Query<&mut BlockState>,
+    mut commands: Commands,
+) {
+    for entity in entity.iter_mut() {
+        commands.entity(entity).despawn_recursive();
+    }
+    for mut state in block_state.iter_mut() {
+        *state = BlockState::Placed;
+    }
+    *board = Board::default();
+    next_state.set(GameState::InGame);
 }
 
 #[derive(Resource)]
@@ -34,12 +59,12 @@ impl Default for Level {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct SpeedTimer {
     watch: Stopwatch,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct DasTimer {
     das: Stopwatch,
     speed: Stopwatch,
@@ -60,15 +85,15 @@ impl std::fmt::Display for Board {
                     acc + &format!(
                         "[{}]",
                         match x {
-                            BoardBlockState::Placed { block_type: x } => x.to_string(),
-                            BoardBlockState::Falling { block_type: x } => x.to_string(),
+                            BoardBlockState::Placed { block_type }
+                            | BoardBlockState::Falling { block_type } => block_type.to_string(),
                             BoardBlockState::Empty => String::from(" "),
                         }
                     )
                 }) + "\n"
             })
             .collect::<String>();
-        write!(f, "{}", k)
+        write!(f, "{k}")
     }
 }
 
@@ -80,17 +105,11 @@ pub enum BoardBlockState {
 }
 
 impl BoardBlockState {
-    fn is_falling(&self) -> bool {
-        match self {
-            Self::Falling { .. } => true,
-            _ => false,
-        }
+    const fn is_falling(self) -> bool {
+        matches!(self, Self::Falling { .. })
     }
-    fn is_placed(&self) -> bool {
-        match self {
-            Self::Placed { .. } => true,
-            _ => false,
-        }
+    const fn is_placed(self) -> bool {
+        matches!(self, Self::Placed { .. })
     }
 }
 
@@ -106,57 +125,20 @@ impl Default for Board {
     }
 }
 
-impl Default for DasTimer {
-    fn default() -> Self {
-        Self {
-            das: Stopwatch::default(),
-            speed: Stopwatch::default(),
-        }
-    }
-}
-
-impl Default for SpeedTimer {
-    fn default() -> Self {
-        Self {
-            watch: Stopwatch::default(),
-        }
-    }
-}
-
 #[derive(Bundle)]
 pub struct TetrisBlockBundle {
     block: Block,
-    state: State,
-    facing: Angle,
+    state: BlockState,
 }
 
 #[derive(Component, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
-pub enum Angle {
-    Up,
-    Right,
-    Down,
-    Left,
-}
-
-impl Angle {
-    fn rotate_right(&self) -> Self {
-        match self {
-            Angle::Up => Angle::Right,
-            Angle::Right => Angle::Down,
-            Angle::Down => Angle::Left,
-            Angle::Left => Angle::Right,
-        }
-    }
-}
-
-#[derive(Component, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
-pub enum State {
+pub enum BlockState {
     Placed,
     Falling,
 }
 
 impl Level {
-    fn get_duraiton(&self) -> Duration {
+    const fn get_duraiton(&self) -> Duration {
         let frames: u64 = match self.0 {
             0 => 48,
             1 => 43,
@@ -178,7 +160,7 @@ impl Level {
     }
 }
 
-impl Default for State {
+impl Default for BlockState {
     fn default() -> Self {
         Self::Placed
     }
@@ -201,24 +183,29 @@ impl std::fmt::Display for Block {
             f,
             "{}",
             match self {
-                Block::T => "T",
-                Block::J => "J",
-                Block::L => "L",
-                Block::I => "I",
-                Block::O => "O",
-                Block::S => "S",
-                Block::Z => "Z",
+                Self::T => "T",
+                Self::J => "J",
+                Self::L => "L",
+                Self::I => "I",
+                Self::O => "O",
+                Self::S => "S",
+                Self::Z => "Z",
             }
         )
     }
 }
 
-fn block_spawner(state: Query<&State>, mut board: ResMut<Board>, mut commands: Commands) {
-    if state.iter().all(|&x| x == State::Placed) {
+fn block_spawner(
+    state: Query<&BlockState>,
+    mut board: ResMut<Board>,
+    mut commands: Commands,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if state.iter().all(|&x| x == BlockState::Placed) {
         let block = Block::generate_random();
 
         let array_to_insert = block.get_occupied();
-        let board_mid_point = board.inner.iter().map(|x| x.len()).max().unwrap() / 2;
+        let board_mid_point = board.inner.iter().map(Vec::len).max().unwrap() / 2;
         let offset = array_to_insert.iter().map(|x| x.len()).max().unwrap() / 2;
         let start_row = 0; // example starting row
         let start_col = board_mid_point - offset; // example starting column
@@ -228,6 +215,10 @@ fn block_spawner(state: Query<&State>, mut board: ResMut<Board>, mut commands: C
             for (j, &elem) in row.iter().enumerate() {
                 if let Some(row) = board.inner.get_mut(start_row + i) {
                     if let Some(cell) = row.get_mut(start_col + j) {
+                        if cell != &BoardBlockState::Empty {
+                            next_state.set(GameState::GameOver);
+                            break;
+                        }
                         *cell = elem;
                     }
                 }
@@ -235,11 +226,10 @@ fn block_spawner(state: Query<&State>, mut board: ResMut<Board>, mut commands: C
         }
 
         /* Create the ground. */
-        commands.spawn((TetrisBlockBundle {
+        commands.spawn(TetrisBlockBundle {
             block,
-            state: State::Falling,
-            facing: Angle::Up,
-        },));
+            state: BlockState::Falling,
+        });
     }
 }
 
@@ -379,7 +369,7 @@ fn extract_matrix(
     }
 }
 
-fn rotate_matrix<'a>(matrix: Vec<Vec<BoardBlockState>>) -> Vec<Vec<BoardBlockState>> {
+fn rotate_matrix(matrix: Vec<Vec<BoardBlockState>>) -> Vec<Vec<BoardBlockState>> {
     let mut new_piece = matrix.clone();
     let mut moved = true;
     let len = matrix.len();
@@ -398,10 +388,10 @@ fn rotate_matrix<'a>(matrix: Vec<Vec<BoardBlockState>>) -> Vec<Vec<BoardBlockSta
             }
         }
     }
-    dbg!(new_piece)
+    new_piece
 }
 fn block_movement_controls(
-    mut query: Query<(&Block, &mut State, &mut Angle), With<Block>>,
+    mut query: Query<(&Block, &mut BlockState), With<Block>>,
     mut board: ResMut<Board>,
     keyboard_input: Res<Input<KeyCode>>,
     time: Res<Time>,
@@ -409,9 +399,9 @@ fn block_movement_controls(
 ) {
     let board = &mut board.inner;
 
-    if let Some((block, _, mut facing)) = query
+    if let Some((block, _)) = query
         .iter_mut()
-        .find(|(_, state, _)| **state == State::Falling)
+        .find(|(_, state)| **state == BlockState::Falling)
     {
         let mut das_handler = |keycode, translator: &mut dyn FnMut()| {
             timer.das.tick(time.delta());
@@ -451,16 +441,16 @@ fn block_movement_controls(
                         for (j, &cell) in row.iter().enumerate() {
                             let board_row = a + i;
                             let board_col = b + j;
-                            if board_row < rows && board_col < cols {
-                                if !board[board_row][board_col].is_placed() {
-                                    board[board_row][board_col] = cell;
-                                }
+                            if board_row < rows
+                                && board_col < cols
+                                && !board[board_row][board_col].is_placed()
+                            {
+                                board[board_row][board_col] = cell;
                             }
                         }
                     }
                 }
             }
-            // dbg!(vec);
         }
 
         if keyboard_input.pressed(KeyCode::Left) {
@@ -480,15 +470,11 @@ fn block_movement_controls(
                     for row in 0..rows {
                         if board[row][col + 1].is_falling() {
                             match board[row][col] {
-                                BoardBlockState::Empty => {
+                                BoardBlockState::Empty | BoardBlockState::Falling { .. } => {
                                     block_allowed_to_move.push(true);
                                 }
                                 BoardBlockState::Placed { .. } => {
                                     block_allowed_to_move.push(false);
-                                }
-                                // this branch happens if it's the same piece
-                                BoardBlockState::Falling { .. } => {
-                                    block_allowed_to_move.push(true);
                                 }
                             }
                         }
@@ -498,17 +484,12 @@ fn block_movement_controls(
                 // second pass, move it down without checking
                 for col in 1..cols {
                     for row in 0..rows {
-                        match board[row][col] {
-                            BoardBlockState::Falling { .. } => {
-                                if block_allowed_to_move.iter().all(|&x| x == true) {
-                                    if !at_edge {
-                                        board[row][col] = BoardBlockState::Empty;
-                                        board[row][col - 1] =
-                                            BoardBlockState::Falling { block_type: *block };
-                                    }
-                                }
-                            }
-                            _ => {}
+                        if matches!(board[row][col], BoardBlockState::Falling { .. })
+                            && block_allowed_to_move.iter().all(|&x| x)
+                            && !at_edge
+                        {
+                            board[row][col] = BoardBlockState::Empty;
+                            board[row][col - 1] = BoardBlockState::Falling { block_type: *block };
                         }
                     }
                 }
@@ -532,15 +513,11 @@ fn block_movement_controls(
                             || (col != 0 && board[row][col - 1].is_falling())
                         {
                             match board[row][col] {
-                                BoardBlockState::Empty => {
+                                BoardBlockState::Empty | BoardBlockState::Falling { .. } => {
                                     block_allowed_to_move.push(true);
                                 }
                                 BoardBlockState::Placed { .. } => {
                                     block_allowed_to_move.push(false);
-                                }
-                                // this branch happens if it's the same piece
-                                BoardBlockState::Falling { .. } => {
-                                    block_allowed_to_move.push(true);
                                 }
                             }
                         }
@@ -550,17 +527,12 @@ fn block_movement_controls(
                 // second pass, move it down without checking
                 for col in (0..cols).rev() {
                     for row in 0..rows {
-                        match board[row][col] {
-                            BoardBlockState::Falling { .. } => {
-                                if block_allowed_to_move.iter().all(|&x| x == true) {
-                                    if !at_edge {
-                                        board[row][col] = BoardBlockState::Empty;
-                                        board[row][col + 1] =
-                                            BoardBlockState::Falling { block_type: *block };
-                                    }
-                                }
-                            }
-                            _ => {}
+                        if matches!(board[row][col], BoardBlockState::Falling { .. })
+                            && block_allowed_to_move.iter().all(|&x| x)
+                            && !at_edge
+                        {
+                            board[row][col] = BoardBlockState::Empty;
+                            board[row][col + 1] = BoardBlockState::Falling { block_type: *block };
                         }
                     }
                 }
@@ -576,13 +548,13 @@ fn board_tui(board: Res<Board>) {
 }
 
 fn block_gravity(
-    mut query: Query<(&Block, &mut State), With<Block>>,
+    mut query: Query<(&Block, &mut BlockState), With<Block>>,
     mut board_b: ResMut<Board>,
     level: Res<Level>,
     time: Res<Time>,
     mut timer: ResMut<SpeedTimer>,
 ) {
-    if let Some((block, mut state)) = query.iter_mut().find(|x| *x.1 == State::Falling) {
+    if let Some((block, mut state)) = query.iter_mut().find(|x| *x.1 == BlockState::Falling) {
         timer.watch.tick(time.delta());
 
         if timer.watch.elapsed() >= level.get_duraiton() {
@@ -598,7 +570,7 @@ fn block_gravity(
                 .filter(|x| x.is_falling())
             {
                 *x = BoardBlockState::Placed { block_type: *block };
-                *state = State::Placed;
+                *state = BlockState::Placed;
             }
 
             // first pass, check if it's possible to move down
@@ -610,15 +582,11 @@ fn block_gravity(
                     if board[row - 1][col].is_falling() {
                         // previous dot status
                         match board[row][col] {
-                            BoardBlockState::Empty => {
+                            BoardBlockState::Empty | BoardBlockState::Falling { .. } => {
                                 block_allowed_to_move.push(true);
                             }
                             BoardBlockState::Placed { .. } => {
                                 block_allowed_to_move.push(false);
-                            }
-                            // this branch happens if it's the same piece
-                            BoardBlockState::Falling { .. } => {
-                                block_allowed_to_move.push(true);
                             }
                         }
                     }
@@ -628,18 +596,14 @@ fn block_gravity(
             for row in (1..rows).rev() {
                 for col in 0..cols {
                     // Apply gravity from bottom to second row (since the first row can't move down)
-                    match board[row][col] {
-                        BoardBlockState::Falling { .. } => {
-                            if block_allowed_to_move.iter().all(|&x| x == true) {
-                                board[row][col] = BoardBlockState::Empty;
-                                board[row + 1][col] =
-                                    BoardBlockState::Falling { block_type: *block };
-                            } else {
-                                board[row][col] = BoardBlockState::Placed { block_type: *block };
-                                *state = State::Placed;
-                            }
+                    if matches!(board[row][col], BoardBlockState::Falling { .. }) {
+                        if block_allowed_to_move.iter().all(|&x| x) {
+                            board[row][col] = BoardBlockState::Empty;
+                            board[row + 1][col] = BoardBlockState::Falling { block_type: *block };
+                        } else {
+                            board[row][col] = BoardBlockState::Placed { block_type: *block };
+                            *state = BlockState::Placed;
                         }
-                        _ => {}
                     }
                 }
             }

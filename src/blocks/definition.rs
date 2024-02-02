@@ -3,23 +3,23 @@ use bevy::prelude::*;
 
 use super::blocks::BoardBlockState;
 impl Block {
-    pub fn get_color(&self) -> Color {
+    pub const fn get_color(self) -> Color {
         match self {
-            Block::T => Color::PURPLE,
-            Block::J => Color::PINK,
-            Block::L => Color::ORANGE,
-            Block::I => Color::CYAN,
-            Block::O => Color::YELLOW,
-            Block::S => Color::RED,
-            Block::Z => Color::GREEN,
+            Self::T => Color::PURPLE,
+            Self::J => Color::PINK,
+            Self::L => Color::ORANGE,
+            Self::I => Color::CYAN,
+            Self::O => Color::YELLOW,
+            Self::S => Color::RED,
+            Self::Z => Color::GREEN,
         }
     }
 
-    pub fn rotate_right(&self) -> Vec<Vec<BoardBlockState>> {
+    pub fn rotate_right(self) -> Vec<Vec<BoardBlockState>> {
         use BoardBlockState as E;
-        let falling = E::Falling { block_type: *self };
+        let falling = E::Falling { block_type: self };
         match self {
-            Block::I => vec![
+            Self::I => vec![
                 vec![E::Empty, E::Empty, falling, E::Empty],
                 vec![E::Empty, E::Empty, falling, E::Empty],
                 vec![E::Empty, E::Empty, falling, E::Empty],
@@ -29,47 +29,47 @@ impl Block {
         }
     }
 
-    pub fn get_occupied(&self) -> Vec<Vec<BoardBlockState>> {
+    pub fn get_occupied(self) -> Vec<Vec<BoardBlockState>> {
         use BoardBlockState as E;
-        let falling = E::Falling { block_type: *self };
+        let falling = E::Falling { block_type: self };
         match self {
-            Block::T => vec![
+            Self::T => vec![
                 vec![E::Empty, E::Empty, E::Empty],
                 vec![E::Empty, falling, E::Empty],
                 vec![falling, falling, falling],
                 vec![E::Empty, E::Empty, E::Empty],
             ],
-            Block::J => vec![
+            Self::J => vec![
                 vec![E::Empty, E::Empty, E::Empty],
                 vec![falling, E::Empty, E::Empty],
                 vec![falling, falling, falling],
                 vec![E::Empty, E::Empty, E::Empty],
             ],
-            Block::L => vec![
+            Self::L => vec![
                 vec![E::Empty, E::Empty, E::Empty, E::Empty],
                 vec![E::Empty, E::Empty, E::Empty, falling],
                 vec![E::Empty, falling, falling, falling],
                 vec![E::Empty, E::Empty, E::Empty, E::Empty],
             ],
-            Block::O => vec![
+            Self::O => vec![
                 vec![E::Empty, E::Empty, E::Empty, E::Empty],
                 vec![E::Empty, falling, falling, E::Empty],
                 vec![E::Empty, falling, falling, E::Empty],
                 vec![E::Empty, E::Empty, E::Empty, E::Empty],
             ],
-            Block::S => vec![
+            Self::S => vec![
                 vec![E::Empty, E::Empty, E::Empty],
                 vec![E::Empty, falling, falling],
                 vec![falling, falling, E::Empty],
                 vec![E::Empty, E::Empty, E::Empty],
             ],
-            Block::Z => vec![
+            Self::Z => vec![
                 vec![E::Empty, E::Empty, E::Empty],
                 vec![falling, falling, E::Empty],
                 vec![E::Empty, falling, falling],
                 vec![E::Empty, E::Empty, E::Empty],
             ],
-            Block::I => vec![
+            Self::I => vec![
                 vec![E::Empty, E::Empty, E::Empty, E::Empty],
                 vec![falling, falling, falling, falling],
                 vec![E::Empty, E::Empty, E::Empty, E::Empty],
