@@ -6,4 +6,4 @@
 - No assets required! Pure Mesh and ColorMaterials
 
 # Online
-(WASM)[https://justsimplykyle.github.io/tetris-with-bevy/]
+[WASM](https://justsimplykyle.github.io/tetris-with-bevy/)
