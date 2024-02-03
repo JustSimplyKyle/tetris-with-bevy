@@ -68,7 +68,7 @@ pub struct Level(u8);
 
 impl Default for Level {
     fn default() -> Self {
-        Self(29)
+        Self(9)
     }
 }
 
@@ -681,12 +681,17 @@ fn block_gravity(
     mut board_b: ResMut<Board>,
     level: Res<Level>,
     time: Res<Time>,
+    keyboard_input: Res<Input<KeyCode>>,
     mut timer: ResMut<SpeedTimer>,
 ) {
     if let Some((block, mut state)) = query.iter_mut().find(|x| *x.1 == BlockState::Falling) {
         timer.watch.tick(time.delta());
 
-        if timer.watch.elapsed() >= level.get_duraiton() {
+        let pressed = keyboard_input.pressed(KeyCode::Down) && level.0 <= 19;
+
+        if timer.watch.elapsed() >= level.get_duraiton()
+            || (pressed && timer.watch.elapsed() >= Level(19).get_duraiton())
+        {
             let board = &mut board_b.inner;
             timer.watch.reset();
             let rows = board.len();
