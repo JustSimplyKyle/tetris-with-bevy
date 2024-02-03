@@ -11,20 +11,27 @@ use crate::GameState;
 
 pub struct TetrisBlockPlugin;
 
+const PREVIEW_COUNT: usize = 1;
 impl Plugin for TetrisBlockPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Board>()
             .init_resource::<DasTimer>()
-            .init_resource::<Level>()
+            .init_resource::<CurrentBlockWithPreview<PREVIEW_COUNT>>()
             .init_resource::<SpeedTimer>()
+            .init_resource::<Level>()
+            .init_resource::<Lines>()
+            .init_resource::<Score>()
+            .add_event::<LinesIncrementEvent>()
             .add_systems(
                 Update,
                 (
+                    level_up,
                     block_movement_controls,
-                    block_spawner,
+                    block_spawner::<PREVIEW_COUNT>,
                     draw_block,
                     clear_line,
                     board_tui,
+                    board_gui,
                     block_gravity,
                 )
                     .run_if(in_state(GameState::InGame)),
@@ -35,6 +42,9 @@ impl Plugin for TetrisBlockPlugin {
 
 fn clear_board(
     mut board: ResMut<Board>,
+    mut level: ResMut<Level>,
+    mut lines: ResMut<Lines>,
+    mut score: ResMut<Score>,
     mut next_state: ResMut<NextState<GameState>>,
     mut entity: Query<Entity, With<Block>>,
     mut block_state: Query<&mut BlockState>,
@@ -46,6 +56,9 @@ fn clear_board(
     for mut state in block_state.iter_mut() {
         *state = BlockState::Placed;
     }
+    *level = Level::default();
+    *lines = Lines::default();
+    *score = Score::default();
     *board = Board::default();
     next_state.set(GameState::InGame);
 }
@@ -55,9 +68,38 @@ pub struct Level(u8);
 
 impl Default for Level {
     fn default() -> Self {
-        Self(9)
+        Self(29)
     }
 }
+
+#[derive(Resource, Default)]
+pub struct Lines {
+    total_lines: usize,
+    current_level_lines: usize,
+}
+
+#[derive(Event, Default)]
+pub struct LinesIncrementEvent(usize);
+
+fn level_up(
+    mut lines_event: EventReader<LinesIncrementEvent>,
+    mut lines: ResMut<Lines>,
+    mut level: ResMut<Level>,
+) {
+    for i in lines_event.read().map(|x| x.0) {
+        if lines.current_level_lines < 10 {
+            lines.current_level_lines += i;
+        }
+        lines.total_lines += i;
+        if lines.current_level_lines >= 10 {
+            lines.current_level_lines -= 10;
+            level.0 += 1;
+        }
+    }
+}
+
+#[derive(Resource, Event, Default)]
+pub struct Score(usize);
 
 #[derive(Resource, Default)]
 pub struct SpeedTimer {
@@ -177,6 +219,33 @@ pub enum Block {
     Z,
 }
 
+#[derive(Resource, Clone)]
+pub struct CurrentBlockWithPreview<const T: usize> {
+    current: Block,
+    preview: [Block; T],
+}
+
+impl<const T: usize> Default for CurrentBlockWithPreview<T> {
+    fn default() -> Self {
+        Self {
+            current: Block::generate_random(),
+            preview: [Block::generate_random(); T],
+        }
+    }
+}
+
+impl<const T: usize> CurrentBlockWithPreview<T> {
+    fn get_and_generate_new_random(&mut self) -> Block {
+        let original = self.preview[0];
+        self.preview.rotate_left(1);
+        self.preview
+            .last_mut()
+            .map(|x| *x = Block::generate_random());
+        self.current = Block::generate_random();
+        original
+    }
+}
+
 impl std::fmt::Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -195,14 +264,15 @@ impl std::fmt::Display for Block {
     }
 }
 
-fn block_spawner(
+fn block_spawner<const T: usize>(
     state: Query<&BlockState>,
     mut board: ResMut<Board>,
     mut commands: Commands,
     mut next_state: ResMut<NextState<GameState>>,
+    mut current_block_with_preview: ResMut<CurrentBlockWithPreview<T>>,
 ) {
     if state.iter().all(|&x| x == BlockState::Placed) {
-        let block = Block::generate_random();
+        let block = current_block_with_preview.get_and_generate_new_random();
 
         let array_to_insert = block.get_occupied();
         let board_mid_point = board.inner.iter().map(Vec::len).max().unwrap() / 2;
@@ -243,31 +313,33 @@ fn draw_block(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let block_mesh = meshes.add(Mesh::from(shape::Quad::default()));
-    for (u_row, row) in board.inner.iter().enumerate() {
-        for (u_col, block) in row.iter().enumerate() {
-            match block {
-                BoardBlockState::Placed { block_type }
-                | BoardBlockState::Falling { block_type } => {
-                    let color = block_type.get_color();
-                    let material = materials.add(ColorMaterial::from(color));
-                    let transform = Transform::default()
-                        .with_scale(Vec3::from_array([POINT_SIZE, POINT_SIZE, POINT_SIZE]))
-                        .with_translation(Vec3::from_array([
-                            POINT_SIZE * u_col as f32 - POINT_SIZE * 4.,
-                            -POINT_SIZE * u_row as f32 + POINT_SIZE * 10.,
-                            0.,
-                        ]));
+    if board.is_changed() {
+        for (u_row, row) in board.inner.iter().enumerate() {
+            for (u_col, block) in row.iter().enumerate() {
+                match block {
+                    BoardBlockState::Placed { block_type }
+                    | BoardBlockState::Falling { block_type } => {
+                        let color = block_type.get_color();
+                        let material = materials.add(ColorMaterial::from(color));
+                        let transform = Transform::default()
+                            .with_scale(Vec3::from_array([POINT_SIZE, POINT_SIZE, POINT_SIZE]))
+                            .with_translation(Vec3::from_array([
+                                POINT_SIZE * u_col as f32 - POINT_SIZE * 4.,
+                                -POINT_SIZE * u_row as f32 + POINT_SIZE * 10.,
+                                0.,
+                            ]));
 
-                    let mesh_bundle = MaterialMesh2dBundle {
-                        mesh: block_mesh.clone_weak().into(),
-                        transform,
-                        material,
-                        ..default()
-                    };
+                        let mesh_bundle = MaterialMesh2dBundle {
+                            mesh: block_mesh.clone_weak().into(),
+                            transform,
+                            material,
+                            ..default()
+                        };
 
-                    commands.spawn(mesh_bundle);
+                        commands.spawn(mesh_bundle);
+                    }
+                    BoardBlockState::Empty => {}
                 }
-                BoardBlockState::Empty => {}
             }
         }
     }
@@ -277,7 +349,7 @@ fn draw_block(
     }
 }
 
-fn clear_line(mut board: ResMut<Board>) {
+fn clear_line(mut board: ResMut<Board>, mut lines: EventWriter<LinesIncrementEvent>) {
     let board = &mut board.inner;
     let p = board
         .iter()
@@ -295,6 +367,7 @@ fn clear_line(mut board: ResMut<Board>) {
     }
 
     let move_down = p.iter().count();
+    lines.send(LinesIncrementEvent(move_down));
     let starting = if move_down != 0 { p[0] } else { 0 };
 
     let cols = board[0].len();
@@ -370,17 +443,17 @@ fn extract_matrix(
 }
 
 fn rotate_matrix(matrix: Vec<Vec<BoardBlockState>>) -> Vec<Vec<BoardBlockState>> {
-    let mut new_piece = matrix.clone();
     let mut moved = true;
     let len = matrix.len();
     for x in 0..len {
         for y in 0..len {
-            if new_piece[y][len - 1 - x].is_placed() {
+            if matrix[y][len - 1 - x].is_placed() {
                 moved = false;
                 break;
             }
         }
     }
+    let mut new_piece = matrix.clone();
     for x in 0..len {
         for y in 0..len {
             if moved {
@@ -413,7 +486,7 @@ fn block_movement_controls(
                 if keyboard_input.just_released(keycode) {
                     timer.das.reset();
                 }
-                if timer.speed.elapsed() >= Duration::from_millis(25) {
+                if timer.speed.elapsed() >= Duration::from_millis(50) {
                     timer.speed.reset();
                     translator();
                 }
@@ -421,36 +494,7 @@ fn block_movement_controls(
         };
 
         if keyboard_input.just_pressed(KeyCode::Up) && block != &Block::O {
-            let rows = board.len();
-            let cols = board[0].len();
-            let mut vec = Vec::new();
-            for row in 0..rows {
-                for col in 0..cols {
-                    if board[row][col].is_falling() {
-                        vec.push((row, col));
-                    }
-                }
-            }
-            let (row_min, col_min) = (vec.iter().map(|x| x.0).min(), vec.iter().map(|x| x.1).min());
-            if let (Some(a), Some(b)) = (row_min, col_min) {
-                let top_left = (a, b);
-                let matrix = extract_matrix(&*board, top_left, *block);
-                if let Some(x) = matrix {
-                    let rotated = rotate_matrix(x);
-                    for (i, row) in rotated.iter().enumerate() {
-                        for (j, &cell) in row.iter().enumerate() {
-                            let board_row = a + i;
-                            let board_col = b + j;
-                            if board_row < rows
-                                && board_col < cols
-                                && !board[board_row][board_col].is_placed()
-                            {
-                                board[board_row][board_col] = cell;
-                            }
-                        }
-                    }
-                }
-            }
+            rotate_block(board, block);
         }
 
         if keyboard_input.pressed(KeyCode::Left) {
@@ -543,8 +587,93 @@ fn block_movement_controls(
     }
 }
 
-fn board_tui(board: Res<Board>) {
-    println!("{}", *board);
+fn rotate_block(board: &mut Vec<Vec<BoardBlockState>>, block: &Block) {
+    let rows = board.len();
+    let cols = board[0].len();
+    let mut vec = Vec::new();
+    for row in 0..rows {
+        for col in 0..cols {
+            if board[row][col].is_falling() {
+                vec.push((row, col));
+            }
+        }
+    }
+    let (row_min, col_min) = (vec.iter().map(|x| x.0).min(), vec.iter().map(|x| x.1).min());
+    if let (Some(a), Some(b)) = (row_min, col_min) {
+        let top_left = (a, b);
+        let matrix = extract_matrix(&*board, top_left, *block);
+        if let Some(x) = matrix {
+            let rotated = rotate_matrix(x);
+            for (i, row) in rotated.iter().enumerate() {
+                for (j, &cell) in row.iter().enumerate() {
+                    let board_row = a + i;
+                    let board_col = b + j;
+                    if board_row < rows
+                        && board_col < cols
+                        && !board[board_row][board_col].is_placed()
+                    {
+                        board[board_row][board_col] = cell;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn board_tui(
+    board: Res<Board>,
+    lines: Res<Lines>,
+    level: Res<Level>,
+    preview: Res<CurrentBlockWithPreview<PREVIEW_COUNT>>,
+) {
+    if board.is_changed() {
+        println!("{}", *board);
+        println!("lines: {}", lines.total_lines);
+        println!("level: {}", level.0);
+        println!("next_piece: {}", preview.preview.first().unwrap());
+    }
+}
+
+fn board_gui(
+    board: Res<Board>,
+    lines: Res<Lines>,
+    level: Res<Level>,
+    preview: Res<CurrentBlockWithPreview<PREVIEW_COUNT>>,
+    mut query: Query<&mut Text>,
+    mut commands: Commands,
+) {
+    if board.is_changed() {
+        let value = format!(
+            "lines: {}\nlevel: {}\npreview: {}",
+            lines.total_lines,
+            level.0,
+            preview.preview.first().unwrap()
+        );
+        if query.is_empty() {
+            let style = TextStyle {
+                font_size: POINT_SIZE,
+                ..Default::default()
+            };
+            commands.spawn(Text2dBundle {
+                text: Text {
+                    sections: vec![TextSection {
+                        value,
+                        style: style,
+                    }],
+                    ..default()
+                },
+                text_anchor: bevy::sprite::Anchor::CenterLeft,
+                transform: Transform::from_translation(Vec3::from_array([POINT_SIZE * 6., 0., 0.])),
+                ..default()
+            });
+        } else {
+            for mut i in query.iter_mut() {
+                for p in i.sections.iter_mut() {
+                    p.value = value.clone();
+                }
+            }
+        }
+    }
 }
 
 fn block_gravity(
