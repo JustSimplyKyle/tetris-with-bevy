@@ -1,4 +1,5 @@
 mod blocks;
+mod schedule;
 use bevy::prelude::*;
 use blocks::blocks::TetrisBlockPlugin;
 

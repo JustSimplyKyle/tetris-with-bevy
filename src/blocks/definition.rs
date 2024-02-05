@@ -6,7 +6,7 @@ impl Block {
     pub const fn get_color(self) -> Color {
         match self {
             Self::T => Color::PURPLE,
-            Self::J => Color::PINK,
+            Self::J => Color::BLUE,
             Self::L => Color::ORANGE,
             Self::I => Color::CYAN,
             Self::O => Color::YELLOW,
