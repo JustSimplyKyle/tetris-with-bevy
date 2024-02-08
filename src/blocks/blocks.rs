@@ -1,19 +1,21 @@
 use std::time::Duration;
 
-use bevy::{
-    prelude::*,
-    render::render_resource::PrimitiveTopology,
-    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
-};
+use bevy::prelude::*;
 use rand_derive2::RandGen;
 
-use crate::{schedule::InGameSet, GameState};
+use crate::{border::DrawBorderPlugin, schedule::InGameSet, GameState};
 
-use super::{gravity::GravityPlugin, movement::MovementPlugin};
+use super::{
+    drawer::{DrawBlockEvent, DrawBoardPlugin},
+    gravity::GravityPlugin,
+    movement::MovementPlugin,
+};
+
+pub const PREVIEW_COUNT: usize = 1;
+pub const POINT_SIZE: f32 = 32.;
 
 pub struct TetrisBlockPlugin;
 
-const PREVIEW_COUNT: usize = 1;
 impl Plugin for TetrisBlockPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Board>()
@@ -22,81 +24,17 @@ impl Plugin for TetrisBlockPlugin {
             .init_resource::<Lines>()
             .init_resource::<Score>()
             .add_event::<LinesIncrementEvent>()
-            .add_event::<DrawBlockEvent>()
             .add_plugins(MovementPlugin)
             .add_plugins(GravityPlugin)
-            .add_systems(Startup, draw_borders)
+            .add_plugins(DrawBoardPlugin)
+            .add_plugins(DrawBorderPlugin)
             .add_systems(
                 Update,
                 (block_spawner::<PREVIEW_COUNT>, clear_line).in_set(InGameSet::BoardInitUpdate),
             )
-            .add_systems(Update, (level_up).in_set(InGameSet::ScoreLevelUpdate))
-            .add_systems(
-                Update,
-                (draw_single_block, draw_block, info_gui, board_tui).in_set(InGameSet::BoardDrawer),
-            )
-            .add_systems(Update, clear_blocks.after(InGameSet::BoardDrawer))
+            .add_systems(Update, (level_up).in_set(InGameSet::InfoUpdate))
+            .add_systems(Update, (info_gui, board_tui).in_set(InGameSet::BoardDrawer))
             .add_systems(OnEnter(GameState::GameOver), clear_board);
-    }
-}
-
-#[derive(Component, Copy, Clone)]
-pub struct Border;
-
-fn draw_borders(
-    board: Res<Board>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    let border = Border;
-    let board = &board.inner;
-    for row in [0, board.len() - 1] {
-        let mesh = Mesh::new(PrimitiveTopology::LineList).with_inserted_attribute(
-            Mesh::ATTRIBUTE_POSITION,
-            vec![[0., 0., 12.], [board[0].len() as f32, 0., 12.]],
-        );
-        let material = materials.add(ColorMaterial::from(Color::GRAY));
-        let transform = Transform::default()
-            .with_scale(Vec3::from_array([POINT_SIZE, POINT_SIZE, -POINT_SIZE]))
-            .with_translation(Vec3::from_array([
-                0. - POINT_SIZE * 4.5,
-                -POINT_SIZE * row as f32 + POINT_SIZE * 9.5,
-                0.,
-            ]));
-
-        let mesh_bundle = MaterialMesh2dBundle {
-            mesh: meshes.add(mesh).into(),
-            transform,
-            material,
-            ..default()
-        };
-        commands.spawn((border, mesh_bundle));
-    }
-    for col in [0, board[0].len()] {
-        let material = materials.add(ColorMaterial::from(Color::GRAY));
-        let transform = Transform::default()
-            .with_scale(Vec3::from_array([POINT_SIZE, POINT_SIZE, -POINT_SIZE]))
-            .with_translation(Vec3::from_array([
-                0. - POINT_SIZE * 4.5,
-                0. + POINT_SIZE * 9.5,
-                0.,
-            ]));
-
-        let mesh = Mesh::new(PrimitiveTopology::LineList).with_inserted_attribute(
-            Mesh::ATTRIBUTE_POSITION,
-            vec![
-                [col as f32, 0., 12.],
-                [col as f32, -((board.len() - 1) as f32), 12.],
-            ],
-        );
-        let mesh_bundle = MaterialMesh2dBundle {
-            mesh: meshes.add(mesh).into(),
-            transform,
-            material,
-            ..default()
-        };
-        commands.spawn((border, mesh_bundle));
     }
 }
 
@@ -356,74 +294,6 @@ fn block_spawner<const T: usize>(
     }
 }
 
-const POINT_SIZE: f32 = 32.;
-
-fn draw_block(mut event: EventWriter<DrawBlockEvent>, board: Res<Board>) {
-    for (u_row, row) in board.inner.iter().enumerate() {
-        for (u_col, block) in row.iter().enumerate() {
-            match block {
-                BoardBlockState::Placed { block_type }
-                | BoardBlockState::Falling { block_type } => event.send(DrawBlockEvent {
-                    row: u_row,
-                    col: u_col,
-                    block_type: *block_type,
-                }),
-                BoardBlockState::Empty => {}
-            }
-        }
-    }
-}
-
-fn clear_blocks(
-    mut commands: Commands,
-    block_mesh_handler: Query<(Entity, &Mesh2dHandle), Without<Border>>,
-) {
-    for (entity, _) in &block_mesh_handler {
-        commands.entity(entity).despawn_recursive();
-    }
-}
-
-#[derive(Event)]
-pub struct DrawBlockEvent {
-    row: usize,
-    col: usize,
-    block_type: Block,
-}
-
-fn draw_single_block(
-    mut event: EventReader<DrawBlockEvent>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut commands: Commands,
-) {
-    for DrawBlockEvent {
-        row,
-        col,
-        block_type,
-    } in event.read()
-    {
-        let block_mesh = meshes.add(Mesh::from(shape::Quad::default()));
-        let color = block_type.get_color();
-        let material = materials.add(ColorMaterial::from(color));
-        let transform = Transform::default()
-            .with_scale(Vec3::from_array([POINT_SIZE, POINT_SIZE, POINT_SIZE]))
-            .with_translation(Vec3::from_array([
-                POINT_SIZE * *col as f32 - POINT_SIZE * 4.,
-                -POINT_SIZE * *row as f32 + POINT_SIZE * 10.,
-                0.,
-            ]));
-
-        let mesh_bundle = MaterialMesh2dBundle {
-            mesh: block_mesh.into(),
-            transform,
-            material,
-            ..default()
-        };
-
-        commands.spawn(mesh_bundle);
-    }
-}
-
 fn clear_line(mut board: ResMut<Board>, mut lines: EventWriter<LinesIncrementEvent>) {
     let board = &mut board.inner;
     let p = board
@@ -506,7 +376,7 @@ fn info_gui(
             }
         }
     }
-    let preview = preview.preview.first().unwrap();
+    let preview = preview.preview[0];
     let board = preview.get_occupied();
     for row in 0..board.len() {
         for col in 0..board[0].len() {
@@ -514,7 +384,7 @@ fn info_gui(
                 event.send(DrawBlockEvent {
                     row: row + 14,
                     col: col + 12,
-                    block_type: *preview,
+                    block_type: preview,
                 });
             }
         }

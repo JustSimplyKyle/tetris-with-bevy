@@ -7,7 +7,7 @@ pub enum InGameSet {
     EntityMovement,
     BoardDrawer,
     BoardInitUpdate,
-    ScoreLevelUpdate,
+    InfoUpdate,
 }
 
 pub struct SchedulePlugin;
@@ -21,7 +21,7 @@ impl Plugin for SchedulePlugin {
                 InGameSet::UserInput,
                 InGameSet::EntityMovement,
                 InGameSet::BoardDrawer,
-                InGameSet::ScoreLevelUpdate,
+                InGameSet::InfoUpdate,
             )
                 .chain()
                 .run_if(in_state(GameState::InGame)),
