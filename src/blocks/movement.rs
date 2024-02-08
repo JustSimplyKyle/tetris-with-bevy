@@ -1,4 +1,4 @@
-use std::{process::exit, time::Duration};
+use std::time::Duration;
 
 use bevy::{prelude::*, time::Stopwatch};
 
@@ -76,11 +76,7 @@ fn block_movement_controls(
             let rows = board.len();
             let cols = board[0].len();
 
-            let at_edge = board
-                .iter()
-                .map(|x| x[0])
-                .find(|x| x.is_falling())
-                .is_some();
+            let at_edge = board.iter().map(|x| x[0]).any(BoardBlockState::is_falling);
 
             for col in 0..cols - 1 {
                 for row in 0..rows {
@@ -119,14 +115,12 @@ fn block_movement_controls(
 
             let at_edge = board
                 .iter()
-                .filter_map(|x| x.last())
-                .find(|x| x.is_falling())
-                .is_some();
+                .map(|x| x[x.len() - 1])
+                .any(BoardBlockState::is_falling);
 
             for col in (1..cols).rev() {
                 for row in 0..rows {
-                    // if (col == 0 && board[row][col].is_falling())
-                    if (board[row][col - 1].is_falling()) {
+                    if board[row][col - 1].is_falling() {
                         match board[row][col] {
                             BoardBlockState::Empty | BoardBlockState::Falling { .. } => {
                                 block_allowed_to_move.push(true);
@@ -186,7 +180,7 @@ fn extract_matrix(
     }
 }
 
-fn rotate_matrix(matrix: Vec<Vec<BoardBlockState>>, block: Block) -> Vec<Vec<BoardBlockState>> {
+fn rotate_matrix(matrix: Vec<Vec<BoardBlockState>>) -> Vec<Vec<BoardBlockState>> {
     let mut occupied = Vec::new();
     let mut new_piece = matrix.clone();
     let len = matrix.len();
@@ -214,26 +208,21 @@ fn rotate_matrix(matrix: Vec<Vec<BoardBlockState>>, block: Block) -> Vec<Vec<Boa
     {
         new_piece.rotate_right(1);
     }
-    let t = if block == Block::I { 3 } else { 1 };
-    for _ in 0..t {
-        if new_piece
-            .iter()
-            .filter_map(|x| x.first())
-            .all(|x| *x == BoardBlockState::Empty)
-        {
-            for i in new_piece.iter_mut() {
-                i.rotate_left(1);
-            }
-        } else if new_piece
-            .iter()
-            .filter_map(|x| x.last())
-            .all(|x| *x == BoardBlockState::Empty)
-        {
-            for i in new_piece.iter_mut() {
-                i.rotate_right(1);
-            }
-        } else {
-            break;
+    if new_piece
+        .iter()
+        .filter_map(|x| x.first())
+        .all(|x| *x == BoardBlockState::Empty)
+    {
+        for i in new_piece.iter_mut() {
+            i.rotate_left(1);
+        }
+    } else if new_piece
+        .iter()
+        .filter_map(|x| x.last())
+        .all(|x| *x == BoardBlockState::Empty)
+    {
+        for i in new_piece.iter_mut() {
+            i.rotate_right(1);
         }
     }
     new_piece
@@ -261,11 +250,11 @@ fn rotate_block(board: &mut Vec<Vec<BoardBlockState>>, block: &Block, clockwise:
         return;
     };
     let rotated = if clockwise {
-        rotate_matrix(matrix, *block)
+        rotate_matrix(matrix)
     } else {
-        let matrix = rotate_matrix(matrix, *block);
-        let matrix = rotate_matrix(matrix, *block);
-        rotate_matrix(matrix, *block)
+        let matrix = rotate_matrix(matrix);
+        let matrix = rotate_matrix(matrix);
+        rotate_matrix(matrix)
     };
     for (i, row) in rotated.iter().enumerate() {
         for (j, &cell) in row.iter().enumerate() {

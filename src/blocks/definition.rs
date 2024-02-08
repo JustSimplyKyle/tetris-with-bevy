@@ -15,20 +15,6 @@ impl Block {
         }
     }
 
-    pub fn rotate_right(self) -> Vec<Vec<BoardBlockState>> {
-        use BoardBlockState as E;
-        let falling = E::Falling { block_type: self };
-        match self {
-            Self::I => vec![
-                vec![E::Empty, E::Empty, falling, E::Empty],
-                vec![E::Empty, E::Empty, falling, E::Empty],
-                vec![E::Empty, E::Empty, falling, E::Empty],
-                vec![E::Empty, E::Empty, falling, E::Empty],
-            ],
-            _ => todo!(),
-        }
-    }
-
     pub fn get_occupied(self) -> Vec<Vec<BoardBlockState>> {
         use BoardBlockState as E;
         let falling = E::Falling { block_type: self };
