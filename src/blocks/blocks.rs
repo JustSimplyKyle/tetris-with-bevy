@@ -22,6 +22,7 @@ impl Plugin for TetrisBlockPlugin {
             .init_resource::<Lines>()
             .init_resource::<Score>()
             .add_event::<LinesIncrementEvent>()
+            .add_event::<DrawBlockEvent>()
             .add_plugins(MovementPlugin)
             .add_plugins(GravityPlugin)
             .add_systems(Startup, draw_borders)
@@ -32,8 +33,9 @@ impl Plugin for TetrisBlockPlugin {
             .add_systems(Update, (level_up).in_set(InGameSet::ScoreLevelUpdate))
             .add_systems(
                 Update,
-                (draw_block, info_gui, board_tui).in_set(InGameSet::BoardDrawer),
+                (draw_single_block, draw_block, info_gui, board_tui).in_set(InGameSet::BoardDrawer),
             )
+            .add_systems(Update, clear_blocks.after(InGameSet::BoardDrawer))
             .add_systems(OnEnter(GameState::GameOver), clear_board);
     }
 }
@@ -356,47 +358,69 @@ fn block_spawner<const T: usize>(
 
 const POINT_SIZE: f32 = 32.;
 
-fn draw_block(
-    mut commands: Commands,
-    board: Res<Board>,
-    block_mesh_handler: Query<(Entity, &Mesh2dHandle), Without<Border>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    let block_mesh = meshes.add(Mesh::from(shape::Quad::default()));
-    if board.is_changed() {
-        for (u_row, row) in board.inner.iter().enumerate() {
-            for (u_col, block) in row.iter().enumerate() {
-                match block {
-                    BoardBlockState::Placed { block_type }
-                    | BoardBlockState::Falling { block_type } => {
-                        let color = block_type.get_color();
-                        let material = materials.add(ColorMaterial::from(color));
-                        let transform = Transform::default()
-                            .with_scale(Vec3::from_array([POINT_SIZE, POINT_SIZE, POINT_SIZE]))
-                            .with_translation(Vec3::from_array([
-                                POINT_SIZE * u_col as f32 - POINT_SIZE * 4.,
-                                -POINT_SIZE * u_row as f32 + POINT_SIZE * 10.,
-                                0.,
-                            ]));
-
-                        let mesh_bundle = MaterialMesh2dBundle {
-                            mesh: block_mesh.clone_weak().into(),
-                            transform,
-                            material,
-                            ..default()
-                        };
-
-                        commands.spawn(mesh_bundle);
-                    }
-                    BoardBlockState::Empty => {}
-                }
+fn draw_block(mut event: EventWriter<DrawBlockEvent>, board: Res<Board>) {
+    for (u_row, row) in board.inner.iter().enumerate() {
+        for (u_col, block) in row.iter().enumerate() {
+            match block {
+                BoardBlockState::Placed { block_type }
+                | BoardBlockState::Falling { block_type } => event.send(DrawBlockEvent {
+                    row: u_row,
+                    col: u_col,
+                    block_type: *block_type,
+                }),
+                BoardBlockState::Empty => {}
             }
         }
     }
+}
 
+fn clear_blocks(
+    mut commands: Commands,
+    block_mesh_handler: Query<(Entity, &Mesh2dHandle), Without<Border>>,
+) {
     for (entity, _) in &block_mesh_handler {
         commands.entity(entity).despawn_recursive();
+    }
+}
+
+#[derive(Event)]
+pub struct DrawBlockEvent {
+    row: usize,
+    col: usize,
+    block_type: Block,
+}
+
+fn draw_single_block(
+    mut event: EventReader<DrawBlockEvent>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut commands: Commands,
+) {
+    for DrawBlockEvent {
+        row,
+        col,
+        block_type,
+    } in event.read()
+    {
+        let block_mesh = meshes.add(Mesh::from(shape::Quad::default()));
+        let color = block_type.get_color();
+        let material = materials.add(ColorMaterial::from(color));
+        let transform = Transform::default()
+            .with_scale(Vec3::from_array([POINT_SIZE, POINT_SIZE, POINT_SIZE]))
+            .with_translation(Vec3::from_array([
+                POINT_SIZE * *col as f32 - POINT_SIZE * 4.,
+                -POINT_SIZE * *row as f32 + POINT_SIZE * 10.,
+                0.,
+            ]));
+
+        let mesh_bundle = MaterialMesh2dBundle {
+            mesh: block_mesh.into(),
+            transform,
+            material,
+            ..default()
+        };
+
+        commands.spawn(mesh_bundle);
     }
 }
 
@@ -439,51 +463,59 @@ fn board_tui(
     level: Res<Level>,
     preview: Res<CurrentBlockWithPreview<PREVIEW_COUNT>>,
 ) {
-    if board.is_changed() {
-        println!("{}", *board);
-        println!("lines: {}", lines.total_lines);
-        println!("level: {}", level.0);
-        println!("next_piece: {}", preview.preview.first().unwrap());
-    }
+    println!("{}", *board);
+    println!("lines: {}", lines.total_lines);
+    println!("level: {}", level.0);
+    println!("next_piece: {}", preview.preview.first().unwrap());
 }
 
 fn info_gui(
-    board: Res<Board>,
     lines: Res<Lines>,
     level: Res<Level>,
+    mut event: EventWriter<DrawBlockEvent>,
     preview: Res<CurrentBlockWithPreview<PREVIEW_COUNT>>,
     mut query: Query<&mut Text>,
     mut commands: Commands,
 ) {
-    if board.is_changed() {
-        let value = format!(
-            "lines: {}\nlevel: {}\npreview: {}",
-            lines.total_lines,
-            level.0,
-            preview.preview.first().unwrap()
-        );
-        if query.is_empty() {
-            let style = TextStyle {
-                font_size: POINT_SIZE,
-                ..Default::default()
-            };
-            commands.spawn(Text2dBundle {
-                text: Text {
-                    sections: vec![TextSection {
-                        value,
-                        style: style,
-                    }],
-                    ..default()
-                },
-                text_anchor: bevy::sprite::Anchor::CenterLeft,
-                transform: Transform::from_translation(Vec3::from_array([POINT_SIZE * 6., 0., 0.])),
+    let value = format!(
+        "lines: {}\nlevel: {}\npreview: ",
+        lines.total_lines, level.0,
+    );
+    let transform = Transform::from_translation(Vec3::from_array([POINT_SIZE * 6., 0., 0.]));
+    if query.is_empty() {
+        let style = TextStyle {
+            font_size: POINT_SIZE,
+            ..Default::default()
+        };
+        commands.spawn(Text2dBundle {
+            text: Text {
+                sections: vec![TextSection {
+                    value,
+                    style: style,
+                }],
                 ..default()
-            });
-        } else {
-            for mut i in query.iter_mut() {
-                for p in i.sections.iter_mut() {
-                    p.value = value.clone();
-                }
+            },
+            text_anchor: bevy::sprite::Anchor::CenterLeft,
+            transform,
+            ..default()
+        });
+    } else {
+        for mut i in query.iter_mut() {
+            for p in i.sections.iter_mut() {
+                p.value = value.clone();
+            }
+        }
+    }
+    let preview = preview.preview.first().unwrap();
+    let board = preview.get_occupied();
+    for row in 0..board.len() {
+        for col in 0..board[0].len() {
+            if board[row][col].is_falling() {
+                event.send(DrawBlockEvent {
+                    row: row + 14,
+                    col: col + 12,
+                    block_type: *preview,
+                });
             }
         }
     }
