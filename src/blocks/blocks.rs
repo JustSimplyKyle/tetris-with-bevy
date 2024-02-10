@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{convert::Infallible, time::Duration};
 
 use bevy::prelude::*;
 use rand_derive2::RandGen;
@@ -11,7 +11,7 @@ use super::{
     movement::MovementPlugin,
 };
 
-pub const PREVIEW_COUNT: usize = 1;
+pub const PREVIEW_COUNT: usize = 5;
 pub const POINT_SIZE: f32 = 32.;
 
 pub struct TetrisBlockPlugin;
@@ -43,6 +43,7 @@ fn clear_board(
     mut level: ResMut<Level>,
     mut lines: ResMut<Lines>,
     mut score: ResMut<Score>,
+    mut preview: ResMut<CurrentBlockWithPreview<PREVIEW_COUNT>>,
     mut next_state: ResMut<NextState<GameState>>,
     mut entity: Query<Entity, With<Block>>,
     mut block_state: Query<&mut BlockState>,
@@ -58,6 +59,7 @@ fn clear_board(
     *lines = Lines::default();
     *score = Score::default();
     *board = Board::default();
+    *preview = CurrentBlockWithPreview::default();
     next_state.set(GameState::InGame);
 }
 
@@ -216,9 +218,10 @@ pub struct CurrentBlockWithPreview<const T: usize> {
 
 impl<const T: usize> Default for CurrentBlockWithPreview<T> {
     fn default() -> Self {
+        let preview = std::array::from_fn(|_| Block::generate_random());
         Self {
             current: Block::generate_random(),
-            preview: [Block::generate_random(); T],
+            preview,
         }
     }
 }
@@ -376,16 +379,18 @@ fn info_gui(
             }
         }
     }
-    let preview = preview.preview[0];
-    let board = preview.get_occupied();
-    for row in 0..board.len() {
-        for col in 0..board[0].len() {
-            if board[row][col].is_falling() {
-                event.send(DrawBlockEvent {
-                    row: row + 14,
-                    col: col + 12,
-                    block_type: preview,
-                });
+    let previews = preview.preview;
+    for (u, preview) in previews.iter().enumerate().map(|(x, y)| (x * 3, y)) {
+        let board = preview.get_occupied();
+        for row in 0..board.len() {
+            for col in 0..board[0].len() {
+                if board[row][col].is_falling() {
+                    event.send(DrawBlockEvent {
+                        row: row + 3 + u,
+                        col: col + 16,
+                        block_type: *preview,
+                    });
+                }
             }
         }
     }
